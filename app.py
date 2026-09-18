@@ -309,8 +309,8 @@ def _sign_in_flow():
     st.caption(
         "Demo accounts — `admin` / `admin123` (Administrator) and "
         "`analyst` / `analyst123` (Analyst). Forgot your password? Use "
-        "**🔑 Forgot Password** — set up your 3 security questions first with "
-        "`python manage_users.py setup-security <username>`."
+        "**🔑 Forgot Password** (demo answers: `dog`, `mashava`, "
+        "`great zimbabwe`)."
     )
 
 

@@ -99,9 +99,9 @@ charts, no data, no audit log is ever rendered.
   Plain-text passwords are never written to disk.
 - **Forgot Password dashboard**: pick **🔑 Forgot Password** on the sign-in card — you must
   answer the 3 security questions configured for your account before a new password is
-  accepted. No pre-seeded demo answers: questions (and their hashed answers) are set per
-  account via `python manage_users.py setup-security <username>`, and the reset is refused
-  until they exist. Answers are hashed and compared leniently (case-insensitive, trim).
+  accepted. Seed accounts ship with demo questions (answers `dog`, `mashava`,
+  `great zimbabwe`); replace them per account via `python manage_users.py setup-security
+  <username>`. Answers are hashed and matched leniently (case-insensitive, trim).
 - **Rate limiting**: 5 failed attempts locks the session for 30 seconds (per browser session).
 - **Login audit log**: every successful and failed attempt is appended to `login_log.csv`
   (UTC timestamp, username, outcome, reason).
@@ -116,9 +116,10 @@ python manage_users.py reset-password admin  # change a password
 python manage_users.py remove carol          # delete an account
 ```
 
-> Accounts are created **without** security questions by default — each user must set
-> their own 3 questions with `python manage_users.py setup-security <username>` (admin can
-> run it for anyone). The forgot-password flow refuses to reset until questions exist.
+> The seeded demo accounts come pre-configured with 3 security questions. Their demo
+> answers are `dog`, `mashava`, `great zimbabwe` (shown on the login card). To try the
+> forgot-password flow immediately: switch the login card to **🔑 Forgot Password**, enter
+> `admin`, load the questions, answer with those values, then set a new password.
 
 > Passwords are entered in hidden mode; never type them into logs or the chat.
 

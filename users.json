@@ -3,12 +3,46 @@
     "name": "Administrator",
     "role": "admin",
     "salt": "61703691a071f896b0d69ac90d57c3f3",
-    "password_hash": "e699f1a7374ef3e892872c6aad7dd16e8f58fbe05dae6ead5d405d89e595d0d2"
+    "password_hash": "e699f1a7374ef3e892872c6aad7dd16e8f58fbe05dae6ead5d405d89e595d0d2",
+    "security_questions": [
+      {
+        "question": "What was the name of your first pet?",
+        "salt": "a9724c1464e313eef6fe227ce91c7b3d",
+        "answer_hash": "f1f76799b0616e0721216bbd81b88d6d3915f3e36c58af45bc353e8d028aba8e"
+      },
+      {
+        "question": "What city were you born in?",
+        "salt": "cce73d8c23242d20d3f893630d816aec",
+        "answer_hash": "4628f920699698af8483e587c810f35cab96e349239c70f95739281bba290e13"
+      },
+      {
+        "question": "What was your first car?",
+        "salt": "48455c99543e981cc7cdfb74fd17c1dc",
+        "answer_hash": "358d158984d4609c9c577f23f9873abfbd7510df4ad1e5f75a793e7925c21a0e"
+      }
+    ]
   },
   "analyst": {
     "name": "Fraud Analyst",
     "role": "analyst",
     "salt": "8c027c531722f2a73c588f74b9d50a74",
-    "password_hash": "5a9ca6fff8cf2fb2790fb47acca37fe23e492584c1646985a11c8b916dcb02c7"
+    "password_hash": "5a9ca6fff8cf2fb2790fb47acca37fe23e492584c1646985a11c8b916dcb02c7",
+    "security_questions": [
+      {
+        "question": "What was the name of your first pet?",
+        "salt": "c1652a3df7ab4c5a6515513c22b236fc",
+        "answer_hash": "524c476204bff6476f19ffe552ddc8f50ae67d634f70837b947e23ce58ca2e31"
+      },
+      {
+        "question": "What city were you born in?",
+        "salt": "eabb598cc707ce8ddf81403afbec59d3",
+        "answer_hash": "25c92dbde1e490ee2a299282ed825db686f3881c165c14a45517712494cbb82e"
+      },
+      {
+        "question": "What was your first car?",
+        "salt": "8725a67e01126e574e5e375b80eba826",
+        "answer_hash": "931d5673aa259290c939c7a20ff7c1d1ca7dc36cb7226c3ae46dacfb8abc1791"
+      }
+    ]
   }
 }

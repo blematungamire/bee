@@ -109,20 +109,25 @@ QA = [
 ]
 
 
-def test_default_accounts_have_no_security_questions(tmp_path):
-    """Seeded accounts start clean — no demo answers baked in."""
+def test_seed_defaults_include_security_questions(tmp_path):
+    """Seeded accounts carry the configured demo questions."""
     uf, _ = _paths(tmp_path)
     auth.verify_credentials("admin", "admin123", users_file=uf)
-    assert not auth.has_security_questions("admin", users_file=uf)
-    assert not auth.has_security_questions("analyst", users_file=uf)
-    assert auth.get_security_questions("admin", users_file=uf) is None
+    assert auth.has_security_questions("admin", users_file=uf)
+    assert auth.has_security_questions("analyst", users_file=uf)
+    qs = auth.get_security_questions("admin", users_file=uf)
+    assert len(qs) == 3
 
 
-def test_forgot_password_refused_without_questions(tmp_path):
+def test_default_demo_answers_verify(tmp_path):
     uf, _ = _paths(tmp_path)
     auth.verify_credentials("admin", "admin123", users_file=uf)
-    assert not auth.verify_security_answers(
-        "admin", ["anything", "anything", "anything"], users_file=uf
+    assert auth.verify_security_answers(
+        "admin", ["dog", "mashava", "great zimbabwe"], users_file=uf
+    )
+    # lenient matching: case-insensitive + trimmed
+    assert auth.verify_security_answers(
+        "admin", ["  DOG ", "Mashava", "Great Zimbabwe"], users_file=uf
     )
 
 

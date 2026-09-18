@@ -27,8 +27,6 @@ LOGIN_LOG_COLUMNS = ["date_time", "username", "success", "reason"]
 
 # Seed accounts created automatically on first use. Demo only — change the
 # admin password with `python manage_users.py reset-password admin`.
-# NOTE: accounts are created WITHOUT security questions; each user must set
-# their own via `python manage_users.py setup-security <username>`.
 DEFAULT_USERS = {
     "admin": {
         "name": "Administrator",
@@ -41,6 +39,15 @@ DEFAULT_USERS = {
         "password": "analyst123",
     },
 }
+
+# Demo security questions seeded for the default accounts so the
+# "Forgot Password" dashboard works out of the box. Replace them with
+# `python manage_users.py setup-security <username>`.
+DEFAULT_SECURITY_QA = [
+    ("What was the name of your first pet?", "dog"),
+    ("What city were you born in?", "mashava"),
+    ("What was your first car?", "great zimbabwe"),
+]
 
 PBKDF2_ITERATIONS = 200_000
 
@@ -97,6 +104,17 @@ def _ensure_default_users(users: dict) -> dict:
                 "salt": salt_hex,
                 "password_hash": hash_hex,
             }
+        rec = users[username]
+        if rec.get("security_questions") is None:
+            questions = []
+            for q, a in DEFAULT_SECURITY_QA:
+                q_salt, q_hash = _hash_password(_normalize_answer(a))
+                questions.append({
+                    "question": q,
+                    "salt": q_salt,
+                    "answer_hash": q_hash,
+                })
+            rec["security_questions"] = questions
     return users
 
 
