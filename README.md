@@ -9,6 +9,7 @@ Financial fraud costs institutions billions annually. This application provides 
 ## Features
 
 - **🔐 Mandatory Login (Security Gate)** — the whole system sits behind a password gate; nothing renders until you sign in. Passwords are salted + hashed (PBKDF2-HMAC-SHA256), failed attempts are rate-limited (5 tries → 30s lock), and every login attempt is written to `login_log.csv`
+- **🔑 Forgot Password** — verify identity by answering 3 security questions, then set a new password (questions are hashed, managed per-account via `manage_users.py setup-security`)
 - **Upload CSV** — score thousands of transactions in bulk (multiple files accepted)
 - **Manual Entry** — Score a single transaction interactively
 - **Risk Classification** — CRITICAL / HIGH / MEDIUM / LOW / MINIMAL
@@ -96,6 +97,9 @@ charts, no data, no audit log is ever rendered.
 
 - **Password storage**: PBKDF2-HMAC-SHA256 with a random per-user salt (200,000 iterations).
   Plain-text passwords are never written to disk.
+- **Forgot Password dashboard**: pick **🔑 Forgot Password** on the sign-in card — you must
+  answer the 3 security questions set for your account before a new password is accepted.
+  Answers are hashed too and compared leniently (case-insensitive, trim).
 - **Rate limiting**: 5 failed attempts locks the session for 30 seconds (per browser session).
 - **Login audit log**: every successful and failed attempt is appended to `login_log.csv`
   (UTC timestamp, username, outcome, reason).
@@ -105,9 +109,15 @@ charts, no data, no audit log is ever rendered.
 python manage_users.py init                  # ensure the default demo accounts
 python manage_users.py list                  # show all accounts & roles
 python manage_users.py add alice             # create a new analyst account
+python manage_users.py setup-security alice  # set alice's 3 forgot-password questions
 python manage_users.py reset-password admin  # change a password
 python manage_users.py remove carol          # delete an account
 ```
+
+> Demo security answers for the seeded accounts are `demo pet`, `demo city`, `demo car`
+> (first question/answer pairs shown on the login card). To try the forgot-password flow
+> immediately: switch the login card to **🔑 Forgot Password**, enter `admin`, load the
+> questions, answer with those demo values, then set a new password.
 
 > Passwords are entered in hidden mode; never type them into logs or the chat.
 

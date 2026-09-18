@@ -102,6 +102,83 @@ def test_login_log_records_every_attempt(tmp_path):
     assert rows.iloc[1]["reason"] == "invalid credentials"
 
 
+QA = [
+    ("What was the name of your first pet?", "Rex"),
+    ("What city were you born in?", "Lisbon"),
+    ("What was your first car?", "Fiat 500"),
+]
+
+
+def test_seed_defaults_include_security_questions(tmp_path):
+    uf, _ = _paths(tmp_path)
+    auth.verify_credentials("admin", "admin123", users_file=uf)
+    assert auth.has_security_questions("admin", users_file=uf)
+    assert auth.has_security_questions("analyst", users_file=uf)
+    qs = auth.get_security_questions("admin", users_file=uf)
+    assert len(qs) == 3
+
+
+def test_default_demo_answers_verify(tmp_path):
+    uf, _ = _paths(tmp_path)
+    auth.verify_credentials("admin", "admin123", users_file=uf)
+    assert auth.verify_security_answers(
+        "admin", ["demo pet", "demo city", "demo car"], users_file=uf
+    )
+
+
+def test_set_security_questions(tmp_path):
+    uf, _ = _paths(tmp_path)
+    auth.add_user("mike", "password1", users_file=uf)
+    assert auth.set_security_questions("mike", QA, users_file=uf)
+    assert auth.has_security_questions("mike", users_file=uf)
+    assert auth.get_security_questions("mike", users_file=uf)[0] == QA[0][0]
+
+
+def test_set_security_questions_requires_exactly_three(tmp_path):
+    uf, _ = _paths(tmp_path)
+    auth.add_user("nina", "password1", users_file=uf)
+    assert not auth.set_security_questions("nina", QA[:2], users_file=uf)
+    assert not auth.set_security_questions("nina", QA[:1], users_file=uf)
+    assert auth.set_security_questions("nina", QA, users_file=uf)
+
+
+def test_verify_security_answers_case_insensitive(tmp_path):
+    uf, _ = _paths(tmp_path)
+    auth.add_user("oscar", "password1", users_file=uf)
+    auth.set_security_questions("oscar", QA, users_file=uf)
+    assert auth.verify_security_answers(
+        "oscar", ["  rex ", "LISBON", "fiat 500"], users_file=uf
+    )
+
+
+def test_verify_security_answers_wrong(tmp_path):
+    uf, _ = _paths(tmp_path)
+    auth.add_user("pam", "password1", users_file=uf)
+    auth.set_security_questions("pam", QA, users_file=uf)
+    assert not auth.verify_security_answers(
+        "pam", ["Rex", "Tokyo", "Fiat 500"], users_file=uf
+    )
+
+
+def test_verify_security_answers_without_questions(tmp_path):
+    uf, _ = _paths(tmp_path)
+    auth.add_user("quinn", "password1", users_file=uf)
+    assert not auth.verify_security_answers(
+        "quinn", ["a", "b", "c"], users_file=uf
+    )
+
+
+def test_answer_hashes_never_plaintext(tmp_path):
+    uf, _ = _paths(tmp_path)
+    auth.add_user("ria", "password1", users_file=uf)
+    auth.set_security_questions("ria", QA, users_file=uf)
+    stored = json.load(open(uf, encoding="utf-8"))
+    rec = stored["ria"]["security_questions"][0]
+    assert "answer_hash" in rec and "salt" in rec
+    assert rec["answer_hash"] != "Rex"
+    assert "Rex" not in str(stored)
+
+
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])

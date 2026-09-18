@@ -250,9 +250,82 @@ def test_manual_entry_flow():
     print("Manual-entry flow OK")
 
 
+def test_forgot_password_flow():
+    """Forgot-password dashboard: 3 questions verify identity, then password resets."""
+    import auth as auth_mod
+
+    test_user = "resetter"
+    auth_mod.remove_user(test_user)  # fresh account for this test
+    assert auth_mod.add_user(test_user, "oldpass99", name="Reset Tester")
+    auth_mod.set_security_questions(test_user, [
+        ("What was the name of your first pet?", "Rex"),
+        ("What city were you born in?", "Lisbon"),
+        ("What was your first car?", "Fiat 500"),
+    ])
+
+    def set_text(label, value):
+        for ti in at.text_input:
+            if ti.label == label:
+                ti.set_value(value)
+                return True
+        return False
+
+    def click(label_part):
+        for b in at.button:
+            if label_part in str(b.label):
+                b.click()
+                return True
+        return False
+
+    try:
+        at = AppTest.from_file(APP_PATH, default_timeout=120)
+        at.run()
+        assert not at.exception
+        # Open the forgot-password dashboard
+        for b in at.button:
+            if "Forgot Password" in str(b.label):
+                b.click()
+                break
+        at.run()
+        assert not at.exception
+
+        assert set_text("Enter your username", test_user)
+        at.run()
+        assert click("Load Security Questions")
+        at.run()
+        assert not at.exception
+
+        # The 3 stored questions should now render as inputs
+        for q in ["first pet", "born in", "first car"]:
+            assert any(q in str(ti.label) for ti in at.text_input), f"missing Q: {q}"
+
+        assert set_text("What was the name of your first pet?", "Rex")
+        assert set_text("What city were you born in?", "Lisbon")
+        assert set_text("What was your first car?", "Fiat 500")
+        at.run()
+        assert click("Verify Identity")
+        at.run()
+        assert not at.exception
+
+        assert set_text("New password (min 6 characters)", "newpass99")
+        assert set_text("Confirm new password", "newpass99")
+        at.run()
+        assert click("Set New Password")
+        at.run()
+        assert not at.exception
+
+        # Old password gone, new password works
+        assert auth_mod.verify_credentials(test_user, "newpass99") is not None
+        assert auth_mod.verify_credentials(test_user, "oldpass99") is None
+        print("Forgot-password flow OK")
+    finally:
+        auth_mod.remove_user(test_user)
+
+
 if __name__ == "__main__":
     test_security_login_gate()
     test_login_and_logout_flow()
+    test_forgot_password_flow()
     test_app_renders()
     test_audit_trail_writes_on_scoring()
     test_upload_and_score_flow()

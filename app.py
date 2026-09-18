@@ -33,7 +33,13 @@ from currency import (
     to_usd, from_usd, format_amount, currency_options, code_from_option
 )
 from generate_data import generate_transactions
-from auth import verify_credentials, log_login
+from auth import (
+    verify_credentials,
+    log_login,
+    get_security_questions,
+    verify_security_answers,
+    reset_password,
+)
 
 # ---------------------------------------------------------------------------
 # Multi-currency helpers
@@ -161,16 +167,14 @@ def explain(title: str, body: str):
 # ---------------------------------------------------------------------------
 MAX_LOGIN_ATTEMPTS = 5
 LOGIN_COOLDOWN_SECONDS = 30
+MAX_SECURITY_ATTEMPTS = 5
+SECURITY_COOLDOWN_SECONDS = 30
 
 
 def _attempt_login(username: str, password: str):
     """Validate credentials with rate-limiting. Returns (ok, message)."""
-    import time as _t
-    now = _t.time()
-    block_until = st.session_state.get("auth_block_until", 0)
-    if now < block_until:
-        return False, f"Too many failed attempts. Try again in {int(block_until - now)}s."
-
+    if _is_blocked("auth"):
+        return False, "Too many failed attempts. Try again shortly."
     profile = verify_credentials(username, password)
     if profile:
         st.session_state["auth_user"] = profile
@@ -178,17 +182,136 @@ def _attempt_login(username: str, password: str):
         st.session_state["auth_block_until"] = 0
         log_login(username, True, "login successful")
         return True, ""
+    return _record_failure("auth", username, MAX_LOGIN_ATTEMPTS, LOGIN_COOLDOWN_SECONDS,
+                           "invalid credentials",
+                           "Invalid username or password.")
 
-    failures = st.session_state.get("auth_failures", 0) + 1
-    st.session_state["auth_failures"] = failures
-    if failures >= MAX_LOGIN_ATTEMPTS:
-        st.session_state["auth_block_until"] = now + LOGIN_COOLDOWN_SECONDS
-        st.session_state["auth_failures"] = 0
-        msg = "Invalid credentials. Account temporarily locked."
-    else:
-        msg = f"Invalid username or password. ({MAX_LOGIN_ATTEMPTS - failures} tries left)"
-    log_login(username, False, "invalid credentials")
-    return False, msg
+
+def _is_blocked(kind: str) -> bool:
+    """True if the given attempt-type is in its cooldown window."""
+    import time as _t
+    block_until = st.session_state.get(f"{kind}_block_until", 0)
+    return _t.time() < block_until
+
+
+def _record_failure(kind: str, username: str, max_attempts: int, cooldown: int,
+                    log_reason: str, message: str):
+    import time as _t
+    now = _t.time()
+    failures = st.session_state.get(f"{kind}_failures", 0) + 1
+    st.session_state[f"{kind}_failures"] = failures
+    if failures >= max_attempts:
+        st.session_state[f"{kind}_block_until"] = now + cooldown
+        st.session_state[f"{kind}_failures"] = 0
+        log_login(username, False, f"{log_reason} (rate-limited)")
+        return False, f"{message} Account temporarily locked."
+    remaining = max_attempts - failures
+    log_login(username, False, log_reason)
+    return False, f"{message} ({remaining} tries left)."
+
+
+def _clear_security_flow():
+    for key in ("fp_username", "fp_loaded_user", "fp_questions", "fp_verified"):
+        st.session_state.pop(key, None)
+
+
+def _forgot_password_flow():
+    """The 'Forgot Password' dashboard: verify identity via 3 questions."""
+    st.markdown("#### 🔑 Forgot Password")
+    st.caption("Verify your identity by answering your 3 security questions.")
+    fp_username = st.text_input("Enter your username", key="fp_username")
+    load_clicked = st.button("Load Security Questions", key="fp_load")
+
+    # If the username changed since the last load, drop the stale questions.
+    if (st.session_state.get("fp_loaded_user")
+            and st.session_state.get("fp_loaded_user") != fp_username):
+        st.session_state.pop("fp_questions", None)
+        st.session_state["fp_loaded_user"] = None
+
+    if load_clicked:
+        if not fp_username:
+            st.warning("Enter your username first.")
+        else:
+            questions = get_security_questions(fp_username)
+            if questions:
+                st.session_state["fp_loaded_user"] = fp_username
+                st.session_state["fp_questions"] = questions
+            else:
+                st.session_state.pop("fp_questions", None)
+                st.session_state["fp_loaded_user"] = None
+                st.error(
+                    f"No security questions configured for '{fp_username}'. "
+                    f"Ask an administrator to run "
+                    f"`python manage_users.py setup-security {fp_username}`."
+                )
+
+    loaded_user = st.session_state.get("fp_loaded_user")
+    questions = st.session_state.get("fp_questions")
+    if not loaded_user or not questions:
+        st.info("Type your username and click **Load Security Questions** — "
+                "then answer the 3 questions to verify your identity.")
+        return
+
+    answers = [
+        st.text_input(q, type="password", key=f"fp_a{i}")
+        for i, q in enumerate(questions)
+    ]
+    verify_clicked = st.button("Verify Identity", key="fp_verify")
+    if verify_clicked:
+        if _is_blocked("security"):
+            st.error("Too many failed attempts. Try again shortly.")
+        elif verify_security_answers(loaded_user, answers):
+            st.session_state["fp_verified"] = loaded_user
+            st.session_state["security_failures"] = 0
+            st.session_state["security_block_until"] = 0
+            log_login(loaded_user, True, "identity verified via security questions")
+        else:
+            _failed, msg = _record_failure(
+                "security", loaded_user, MAX_SECURITY_ATTEMPTS,
+                SECURITY_COOLDOWN_SECONDS,
+                "security question answers incorrect",
+                "Answers did not match.")
+            st.error(msg)
+
+    if st.session_state.get("fp_verified") == loaded_user:
+        st.success("Identity verified — choose a new password.")
+        new_pw = st.text_input("New password (min 6 characters)",
+                               type="password", key="fp_new_pw")
+        confirm_pw = st.text_input("Confirm new password",
+                                   type="password", key="fp_confirm_pw")
+        set_clicked = st.button("Set New Password", key="fp_set")
+        if set_clicked:
+            if not new_pw or len(new_pw) < 6:
+                st.error("Password must be at least 6 characters.")
+            elif new_pw != confirm_pw:
+                st.error("Passwords do not match.")
+            elif reset_password(loaded_user, new_pw):
+                st.success("Password updated. Sign in with your new password.")
+                log_login(loaded_user, True, "password reset via security questions")
+                st.session_state["gate_mode"] = "sign_in"
+                _clear_security_flow()
+            else:
+                st.error("Could not update the password.")
+
+
+def _sign_in_flow():
+    st.markdown("#### 🔐 Sign In")
+    with st.form("login_form"):
+        login_user = st.text_input("Username", key="login_username")
+        login_pass = st.text_input("Password", type="password", key="login_password")
+        login_sub = st.form_submit_button("🔐 Login", type="primary", width="stretch")
+        if login_sub:
+            ok, msg = _attempt_login(login_user, login_pass)
+            if ok:
+                st.rerun()
+            else:
+                st.error(msg)
+    st.caption(
+        "Demo accounts — `admin` / `admin123` (Administrator) and "
+        "`analyst` / `analyst123` (Analyst). Forgot your password? Use "
+        "**🔑 Forgot Password** (demo security answers: `demo pet`, "
+        "`demo city`, `demo car`)."
+    )
 
 
 if not st.session_state.get("auth_user"):
@@ -199,22 +322,26 @@ if not st.session_state.get("auth_user"):
     with gate_c2:
         st.title("🛡️ Fraud Transaction Detection")
         st.caption("Secured system — authentication required")
-        st.markdown("#### 🔐 Sign In")
-        with st.form("login_form"):
-            login_user = st.text_input("Username", key="login_username")
-            login_pass = st.text_input("Password", type="password", key="login_password")
-            login_sub = st.form_submit_button("🔐 Login", type="primary", width="stretch")
-            if login_sub:
-                ok, msg = _attempt_login(login_user, login_pass)
-                if ok:
+        _gate_mode = st.session_state.get("gate_mode", "sign_in")
+        _m1, _m2, _m3 = st.columns([1, 1, 1])
+        with _m1:
+            if st.button("🔐 Sign In", key="gate_sign_in", width="content",
+                         type="primary" if _gate_mode != "forgot" else "secondary"):
+                if _gate_mode != "sign_in":
+                    st.session_state["gate_mode"] = "sign_in"
                     st.rerun()
-                else:
-                    st.error(msg)
-        st.caption(
-            "Demo accounts — `admin` / `admin123` (Administrator) and "
-            "`analyst` / `analyst123` (Analyst). Manage accounts with "
-            "`python manage_users.py`."
-        )
+        with _m2:
+            if st.button("🔑 Forgot Password", key="gate_forgot", width="content",
+                         type="primary" if _gate_mode == "forgot" else "secondary"):
+                if _gate_mode != "forgot":
+                    st.session_state["gate_mode"] = "forgot"
+                    st.rerun()
+        with _m3:
+            pass
+        if _gate_mode == "forgot":
+            _forgot_password_flow()
+        else:
+            _sign_in_flow()
     st.stop()
 
 
@@ -1304,11 +1431,15 @@ with tab_about:
       charts, or audit log are rendered until you sign in.
     - **Passwords are never stored in plain text** — each account uses a unique random
       salt with PBKDF2-HMAC-SHA256 (200k iterations).
-    - **Rate limiting** — 5 failed attempts locks the session for 30 seconds.
-    - **Login audit log** — every successful and failed attempt is appended to
-      `login_log.csv` (git-ignored) for traceability.
+    - **Forgot Password dashboard** — in the sign-in card, switch to **🔑 Forgot Password**,
+      type your username, answer the **3 identity-verification questions**, then choose a
+      new password. Answers are hashed and matched leniently (case-insensitive).
+    - **Rate limiting** — 5 failed attempts locks the session for 30 seconds (applies to
+      both sign-in and security-question answering).
+    - **Login audit log** — every successful and failed attempt (plus password resets) is
+      appended to `login_log.csv` (git-ignored) for traceability.
     - **Accounts** live in `users.json` (git-ignored) and are managed from the terminal
-      with `python manage_users.py` (add / list / reset-password / remove).
+      with `python manage_users.py` (add / list / setup-security / reset-password / remove).
     """)
 
     st.markdown("---")

@@ -1,0 +1,2 @@
+transaction_id,date_time,risk_score,rules_triggered,ai_reasoning,data_used,action_taken,investigator_decision,final_outcome
+CCY_A,2026-09-18 11:56:12 UTC,0.1000,none,low risk,"{""source"": ""CSV upload"", ""channel"": ""POS"", ""tx_type"": ""purchase"", ""currency"": ""GBP"", ""amount"": 94.8, ""amount_in_usd"": 120.0}",No action (low risk cleared),Pending review,Awaiting investigator

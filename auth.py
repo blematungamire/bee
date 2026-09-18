@@ -40,6 +40,15 @@ DEFAULT_USERS = {
     },
 }
 
+# Demo security questions seeded for the default accounts so the
+# "Forgot Password" flow works out of the box. Replace them with
+# `python manage_users.py setup-security <username>`.
+DEFAULT_SECURITY_QA = [
+    ("What was the name of your first pet?", "demo pet"),
+    ("What city were you born in?", "demo city"),
+    ("What was your first car?", "demo car"),
+]
+
 PBKDF2_ITERATIONS = 200_000
 
 
@@ -95,6 +104,17 @@ def _ensure_default_users(users: dict) -> dict:
                 "salt": salt_hex,
                 "password_hash": hash_hex,
             }
+        rec = users[username]
+        if rec.get("security_questions") is None:
+            questions = []
+            for q, a in DEFAULT_SECURITY_QA:
+                q_salt, q_hash = _hash_password(_normalize_answer(a))
+                questions.append({
+                    "question": q,
+                    "salt": q_salt,
+                    "answer_hash": q_hash,
+                })
+            rec["security_questions"] = questions
     return users
 
 
@@ -216,3 +236,90 @@ def load_login_log(login_log: str = None):
     if not os.path.exists(path):
         return pd.DataFrame(columns=LOGIN_LOG_COLUMNS)
     return pd.read_csv(path)
+
+
+# ---------------------------------------------------------------------------
+# Security questions (identity verification for "Forgot Password")
+# ---------------------------------------------------------------------------
+# Predefined pool so everyone picks from the same understandable set.
+SECURITY_QUESTION_POOL = [
+    "What was the name of your first pet?",
+    "What is your mother's maiden name?",
+    "What city were you born in?",
+    "What was your first car?",
+    "What street did you grow up on?",
+    "What primary school did you attend?",
+    "What is the nickname of your favorite childhood friend?",
+    "What was the model of your first mobile phone?",
+]
+
+SECURITY_QUESTION_COUNT = 3
+
+
+def _normalize_answer(answer: str) -> str:
+    """Answers are compared leniently: lower-case, trimmed, single-spaced."""
+    return " ".join(str(answer).strip().lower().split())
+
+
+def set_security_questions(username: str, qa_list, users_file: str = None) -> bool:
+    """
+    Store a user's 3 security questions + answers. `qa_list` must be exactly
+    3 tuples of (question, answer). Answers are hashed exactly like passwords.
+    Returns False if the user doesn't exist or the input is malformed.
+    """
+    username = str(username).strip().lower()
+    users = _load_users(users_file)
+    if username not in users:
+        return False
+    if not qa_list or len(qa_list) != SECURITY_QUESTION_COUNT:
+        return False
+
+    entries = []
+    for question, answer in qa_list:
+        if not question or not answer:
+            return False
+        salt_hex, hash_hex = _hash_password(_normalize_answer(answer))
+        entries.append({"question": question, "salt": salt_hex, "answer_hash": hash_hex})
+
+    users[username]["security_questions"] = entries
+    _save_users(users, users_file)
+    return True
+
+
+def get_security_questions(username: str, users_file: str = None):
+    """Return the 3 question texts for a user, or None if not configured."""
+    users = _load_users(users_file)
+    rec = users.get(str(username).strip().lower())
+    if not rec:
+        return None
+    entries = rec.get("security_questions")
+    if not entries:
+        return None
+    return [e["question"] for e in entries]
+
+
+def has_security_questions(username: str, users_file: str = None) -> bool:
+    qs = get_security_questions(username, users_file)
+    return bool(qs and len(qs) == SECURITY_QUESTION_COUNT)
+
+
+def verify_security_answers(username: str, answers, users_file: str = None) -> bool:
+    """
+    Verify all 3 answers for a user (lenient comparison). Returns True only
+    if every answer matches. Never reveals which question was wrong.
+    """
+    users = _load_users(users_file)
+    rec = users.get(str(username).strip().lower())
+    if not rec:
+        return False
+    entries = rec.get("security_questions")
+    if not entries or len(entries) != SECURITY_QUESTION_COUNT:
+        return False
+    if not answers or len(answers) < SECURITY_QUESTION_COUNT:
+        return False
+    for entry, given in zip(entries, answers):
+        if not _verify_password(
+            _normalize_answer(given), entry["salt"], entry["answer_hash"]
+        ):
+            return False
+    return True
