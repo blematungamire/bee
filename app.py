@@ -33,6 +33,7 @@ from currency import (
     to_usd, from_usd, format_amount, currency_options, code_from_option
 )
 from generate_data import generate_transactions
+from fraud_summary import build_fraud_summary
 from auth import (
     verify_credentials,
     log_login,
@@ -535,6 +536,50 @@ with tab_upload:
         m2.metric("Flagged as Fraud", f"{n_flagged:,}", f"{n_flagged/total*100:.1f}%")
         m3.metric("Avg Fraud Score", f"{fraud_pct:.4f}")
         m4.metric("Flagged Amount", f"{format_amount(total_flagged_amount, currency)}")
+
+        # ---- Flagged Fraud Summary & reasoning dashboard ----
+        summary = build_fraud_summary(
+            results, threshold=threshold, currency=currency, symbol=c_sym
+        )
+        with st.container(border=True):
+            st.subheader("📊 Flagged Fraud Summary")
+            if n_flagged == 0:
+                st.info(summary["narrative"])
+            else:
+                rb = summary["risk_breakdown"]
+                sc1, sc2, sc3 = st.columns(3)
+                sc1.metric("CRITICAL", f'{rb.get("CRITICAL", 0):,}')
+                sc2.metric("HIGH", f'{rb.get("HIGH", 0):,}')
+                sc3.metric("MEDIUM", f'{rb.get("MEDIUM", 0):,}')
+                st.markdown(summary["narrative"])
+
+                if summary["top_rules"]:
+                    st.markdown("**Rules that fired most often:**")
+                    for rule, count in summary["top_rules"]:
+                        st.markdown(
+                            f"- {rule} — fired in `{count:,}` of the flagged cases"
+                        )
+
+            explain(
+                "how this summary is generated",
+                """
+                This dashboard is computed **from the current batch**, not from templates:
+
+                - **Counts** come from the exact rows the model flagged at your sidebar
+                  threshold (`is_flagged`).
+                - **Risk breakdown** splits the flagged rows by `risk_level`
+                  (CRITICAL ≥ 0.8, HIGH ≥ 0.6, MEDIUM ≥ 0.4).
+                - **Rules that fired most** are parsed from each flagged row's
+                  `rules_triggered` — these are the *business rules* behind the score,
+                  i.e. the model's stated basis of reasoning.
+                - **Behaviour signals** (high-value, night, international, online,
+                  overdrawn) are derived from the same rules the model reported, so the
+                  summary always matches *why* each case was flagged.
+
+                The narrative paragraph is assembled from these real numbers — if the
+                batch has no flags, it says so explicitly instead of showing empty boxes.
+                """,
+            )
 
         st.markdown("---")
 

@@ -19,6 +19,7 @@ Financial fraud costs institutions billions annually. This application provides 
 - **Export Results** — Download flagged transactions as CSV
 - **Model Analytics** — View feature importance, per-model comparison, confusion matrix, ROC-AUC, and an auto-generated interpretation
 - **Automated Audit Trail** — every decision is logged with risk score, rules triggered, AI reasoning, data used, action taken, and space for an investigator's decision and final outcome
+- **Flagged Fraud Summary** — after scoring a batch, an executive summary of the detected fraud: risk-level counts, the rules that fired most, fraud concentration by category/channel, behaviour signals, and an auto-generated plain-language explanation of **why** each pattern was flagged (computed from the actual batch, not templates)
 
 ## Tech Stack
 
@@ -38,9 +39,11 @@ fraud-detection-app/
 ├── manage_users.py        # CLI to add / list / reset-password / remove accounts
 ├── model.py               # ML model training, prediction, feature engineering
 ├── audit_trail.py         # Automated audit trail (append-only decision log)
+├── fraud_summary.py       # Flagged-fraud summary & reasoning generator
 ├── generate_data.py       # Synthetic transaction data generator
 ├── test_app.py            # Pytest test suite (normal + edge cases + audit)
 ├── test_auth.py           # Pytest tests for the auth module
+├── test_fraud_summary.py  # Pytest tests for the fraud-summary module
 ├── test_app_native.py     # Streamlit AppTest functional checks
 ├── requirements.txt       # Python dependencies
 ├── README.md              # This file
@@ -127,7 +130,8 @@ python manage_users.py remove carol          # delete an account
 
 ```bash
 pytest test_app.py          # unit tests: data, model, prediction, edge cases, audit trail, currency
-pytest test_auth.py         # unit tests: password hashing, users, login log
+pytest test_auth.py         # unit tests: password hashing, users, security questions, login log
+pytest test_fraud_summary.py  # unit tests: flagged-fraud summary & reasoning generator
 python test_app_native.py   # functional AppTest checks incl. the security gate & login/logout
 ```
 
