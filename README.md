@@ -98,8 +98,10 @@ charts, no data, no audit log is ever rendered.
 - **Password storage**: PBKDF2-HMAC-SHA256 with a random per-user salt (200,000 iterations).
   Plain-text passwords are never written to disk.
 - **Forgot Password dashboard**: pick **🔑 Forgot Password** on the sign-in card — you must
-  answer the 3 security questions set for your account before a new password is accepted.
-  Answers are hashed too and compared leniently (case-insensitive, trim).
+  answer the 3 security questions configured for your account before a new password is
+  accepted. No pre-seeded demo answers: questions (and their hashed answers) are set per
+  account via `python manage_users.py setup-security <username>`, and the reset is refused
+  until they exist. Answers are hashed and compared leniently (case-insensitive, trim).
 - **Rate limiting**: 5 failed attempts locks the session for 30 seconds (per browser session).
 - **Login audit log**: every successful and failed attempt is appended to `login_log.csv`
   (UTC timestamp, username, outcome, reason).
@@ -114,10 +116,9 @@ python manage_users.py reset-password admin  # change a password
 python manage_users.py remove carol          # delete an account
 ```
 
-> Demo security answers for the seeded accounts are `demo pet`, `demo city`, `demo car`
-> (first question/answer pairs shown on the login card). To try the forgot-password flow
-> immediately: switch the login card to **🔑 Forgot Password**, enter `admin`, load the
-> questions, answer with those demo values, then set a new password.
+> Accounts are created **without** security questions by default — each user must set
+> their own 3 questions with `python manage_users.py setup-security <username>` (admin can
+> run it for anyone). The forgot-password flow refuses to reset until questions exist.
 
 > Passwords are entered in hidden mode; never type them into logs or the chat.
 
