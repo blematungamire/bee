@@ -8,6 +8,7 @@ Financial fraud costs institutions billions annually. This application provides 
 
 ## Features
 
+- **🔐 Mandatory Login (Security Gate)** — the whole system sits behind a password gate; nothing renders until you sign in. Passwords are salted + hashed (PBKDF2-HMAC-SHA256), failed attempts are rate-limited (5 tries → 30s lock), and every login attempt is written to `login_log.csv`
 - **Upload CSV** — score thousands of transactions in bulk (multiple files accepted)
 - **Manual Entry** — Score a single transaction interactively
 - **Risk Classification** — CRITICAL / HIGH / MEDIUM / LOW / MINIMAL
@@ -32,16 +33,20 @@ Financial fraud costs institutions billions annually. This application provides 
 ```
 fraud-detection-app/
 ├── app.py                 # Main Streamlit application
+├── auth.py                # Authentication & access control (login gate)
+├── manage_users.py        # CLI to add / list / reset-password / remove accounts
 ├── model.py               # ML model training, prediction, feature engineering
 ├── audit_trail.py         # Automated audit trail (append-only decision log)
 ├── generate_data.py       # Synthetic transaction data generator
 ├── test_app.py            # Pytest test suite (normal + edge cases + audit)
+├── test_auth.py           # Pytest tests for the auth module
 ├── test_app_native.py     # Streamlit AppTest functional checks
 ├── requirements.txt       # Python dependencies
 ├── README.md              # This file
 ├── saved_models/          # Saved model artifacts (auto-generated)
 │   └── fraud_model.joblib
-└── audit_log.csv          # Runtime audit log (auto-created, git-ignored)
+├── audit_log.csv          # Runtime audit log (auto-created, git-ignored)
+└── login_log.csv          # Login attempts log (auto-created, git-ignored)
 ```
 
 ## Setup & Installation
@@ -74,11 +79,44 @@ streamlit run app.py
 
 5. Open http://localhost:8501 in your browser.
 
+6. **Sign in** — required before the system will render:
+
+| Account | Password | Role |
+|---------|----------|------|
+| `admin` | `admin123` | Administrator (full access) |
+| `analyst` | `analyst123` | Analyst |
+
+> The default seed accounts are created automatically on first login. **Change the
+> passwords before real-world use** — see [Security & Account Management](#security--account-management).
+
+## Security & Account Management
+
+The application is fully gated: without a valid login you only see the sign-in card — no
+charts, no data, no audit log is ever rendered.
+
+- **Password storage**: PBKDF2-HMAC-SHA256 with a random per-user salt (200,000 iterations).
+  Plain-text passwords are never written to disk.
+- **Rate limiting**: 5 failed attempts locks the session for 30 seconds (per browser session).
+- **Login audit log**: every successful and failed attempt is appended to `login_log.csv`
+  (UTC timestamp, username, outcome, reason).
+- **Account store**: `users.json` (git-ignored). Manage it from the terminal:
+
+```bash
+python manage_users.py init                  # ensure the default demo accounts
+python manage_users.py list                  # show all accounts & roles
+python manage_users.py add alice             # create a new analyst account
+python manage_users.py reset-password admin  # change a password
+python manage_users.py remove carol          # delete an account
+```
+
+> Passwords are entered in hidden mode; never type them into logs or the chat.
+
 ### Running Tests
 
 ```bash
-pytest test_app.py          # 49 tests: data, model, prediction, edge cases, audit trail, currency
-python test_app_native.py   # 6 functional AppTest checks: render, multi-file upload, currency flow, audit, manual entry
+pytest test_app.py          # unit tests: data, model, prediction, edge cases, audit trail, currency
+pytest test_auth.py         # unit tests: password hashing, users, login log
+python test_app_native.py   # functional AppTest checks incl. the security gate & login/logout
 ```
 
 > Note: `saved_models/fraud_model.joblib` is committed so the deployed app starts instantly. It was
@@ -127,6 +165,18 @@ python test_app_native.py   # 6 functional AppTest checks: render, multi-file up
 
 All data is **synthetically generated** via `generate_data.py`. No real financial records, API keys, or personal data are used.
 
+### Example CSV files (ready to upload)
+
+Pre-made example files in `data/` that match the app's expected schema:
+
+| File | Scenario | What to look for |
+|------|----------|------------------|
+| `example_retail_spending.csv` | Everyday consumer spending (POS/Mobile/ATM) | `RET1021` — $5,000 jewellery bought online internationally at 03:00 → CRITICAL |
+| `example_corporate_expenses.csv` | Business expenses & vendor payments | `COR1019` — large overnight international purchase exceeding balance → CRITICAL |
+| `example_cross_border.csv` | International & online-heavy card | Higher flag rate (~20%) — several CRITICAL overnight international transfers |
+
+Upload one, or select several at once and they are combined into a single scored batch.
+
 ## Limitations
 
 - Synthetic data may not capture all real-world fraud patterns
@@ -143,6 +193,13 @@ All data is **synthetically generated** via `generate_data.py`. No real financia
 3. Connect your GitHub repository
 4. Select `app.py` as the main file
 5. Deploy — the app will be live at `https://<your-app>.streamlit.app`
+
+> On deployment, the security files behave as follows: `auth.py` and `manage_users.py` are
+> committed; `users.json` and `login_log.csv` are **git-ignored** and auto-created on the
+> cloud instance the first time someone logs in (fresh seed accounts `admin`/`admin123`).
+> Remember to push `auth.py`, `manage_users.py`, and the latest `app.py`/`model.py`/
+> `requirements.txt`/`saved_models/fraud_model.joblib` to GitHub `main` to deploy this
+> security gate.
 
 ## License
 

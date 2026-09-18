@@ -15,14 +15,66 @@ APP_PATH = os.path.join(os.path.dirname(__file__), "app.py")
 SAMPLE_CSV = os.path.join(os.path.dirname(__file__), "data", "sample_transactions.csv")
 
 
-def test_app_renders():
+def do_login(at):
+    """Sign in as the demo admin so the main (authenticated) UI renders."""
+    for ti in at.text_input:
+        if ti.label == "Username":
+            ti.set_value("admin")
+        elif ti.label == "Password":
+            ti.set_value("admin123")
+    at.run()
+    fired = False
+    for btn in at.button:
+        if "Login" in str(btn.label):
+            btn.click()
+            fired = True
+            break
+    assert fired, "Login button not found"
+    at.run()
+    at.run()  # consume any pending rerun after st.rerun()
+    assert not at.exception, f"App raised during login: {at.exception}"
+
+
+def test_security_login_gate():
+    """Without credentials the main system never renders."""
     at = AppTest.from_file(APP_PATH, default_timeout=120)
     at.run()
     assert not at.exception, f"App raised: {at.exception}"
-    assert any("Fraud Transaction Detection" in str(t.value) for t in at.title)
+    # Gate caption visible, no main UI
+    assert any("Secured system" in str(c.value) for c in at.caption)
+    assert len(at.slider) == 0, "threshold slider must be hidden until login"
+    assert not any("Run Fraud Detection" in str(b.label) for b in at.button)
+    assert not any("Download Full Results" in str(d.label) for d in at.download_button)
+
+
+def test_login_and_logout_flow():
+    """Login exposes the system; logout returns to the gate."""
+    at = AppTest.from_file(APP_PATH, default_timeout=120)
+    at.run()
+    do_login(at)
+    assert any("Download Sample CSV" in str(b.label) for b in at.button)
+    assert len(at.slider) >= 1, "threshold slider should render after login"
+
+    for btn in at.button:
+        if "Logout" in str(btn.label):
+            btn.click()
+            break
+    at.run()
+    assert any("Secured system" in str(c.value) for c in at.caption)
+    print("Login / logout flow OK")
+
+
+def test_app_renders():
+    at = AppTest.from_file(APP_PATH, default_timeout=120)
+    at.run()
+    do_login(at)
+    assert not at.exception, f"App raised: {at.exception}"
     assert len(at.slider) >= 1
     # Audit Trail tab must exist
     assert any("Audit Trail" in str(t.label) for t in at.tabs)
+    # Upload tab content renders (sample downloader + run button after upload)
+    assert any("Run Fraud Detection" in str(b.label) or "Download Sample CSV" in str(b.label)
+               for b in at.button)
 
 
 def test_currency_selection_flow():
@@ -30,6 +82,7 @@ def test_currency_selection_flow():
 
     at = AppTest.from_file(APP_PATH, default_timeout=120)
     at.run()
+    do_login(at)
     assert not at.exception
 
     # Select INR in the sidebar currency selector
@@ -72,6 +125,7 @@ def test_audit_trail_writes_on_scoring():
 
     at = AppTest.from_file(APP_PATH, default_timeout=120)
     at.run()
+    do_login(at)
     assert not at.exception
 
     with open(SAMPLE_CSV, "rb") as f:
@@ -101,6 +155,7 @@ def test_audit_trail_writes_on_scoring():
 def test_upload_and_score_flow():
     at = AppTest.from_file(APP_PATH, default_timeout=120)
     at.run()
+    do_login(at)
     assert not at.exception
 
     # Upload sample CSV
@@ -143,6 +198,7 @@ def test_multi_file_upload_flow():
 
     at = AppTest.from_file(APP_PATH, default_timeout=120)
     at.run()
+    do_login(at)
     assert not at.exception
 
     with open(SAMPLE_CSV, "rb") as f:
@@ -175,6 +231,7 @@ def test_multi_file_upload_flow():
 def test_manual_entry_flow():
     at = AppTest.from_file(APP_PATH, default_timeout=120)
     at.run()
+    do_login(at)
     assert not at.exception
 
     # All tab elements render in AppTest; submit the manual entry form.
@@ -194,6 +251,8 @@ def test_manual_entry_flow():
 
 
 if __name__ == "__main__":
+    test_security_login_gate()
+    test_login_and_logout_flow()
     test_app_renders()
     test_audit_trail_writes_on_scoring()
     test_upload_and_score_flow()

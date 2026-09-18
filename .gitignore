@@ -27,3 +27,5 @@ Thumbs.db
 *.log
 audit_log.csv
 sample_transactions.csv
+login_log.csv
+users.json

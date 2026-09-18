@@ -33,6 +33,7 @@ from currency import (
     to_usd, from_usd, format_amount, currency_options, code_from_option
 )
 from generate_data import generate_transactions
+from auth import verify_credentials, log_login
 
 # ---------------------------------------------------------------------------
 # Multi-currency helpers
@@ -156,9 +157,80 @@ def explain(title: str, body: str):
 
 
 # ---------------------------------------------------------------------------
+# Security gate — nobody reaches the system without signing in first.
+# ---------------------------------------------------------------------------
+MAX_LOGIN_ATTEMPTS = 5
+LOGIN_COOLDOWN_SECONDS = 30
+
+
+def _attempt_login(username: str, password: str):
+    """Validate credentials with rate-limiting. Returns (ok, message)."""
+    import time as _t
+    now = _t.time()
+    block_until = st.session_state.get("auth_block_until", 0)
+    if now < block_until:
+        return False, f"Too many failed attempts. Try again in {int(block_until - now)}s."
+
+    profile = verify_credentials(username, password)
+    if profile:
+        st.session_state["auth_user"] = profile
+        st.session_state["auth_failures"] = 0
+        st.session_state["auth_block_until"] = 0
+        log_login(username, True, "login successful")
+        return True, ""
+
+    failures = st.session_state.get("auth_failures", 0) + 1
+    st.session_state["auth_failures"] = failures
+    if failures >= MAX_LOGIN_ATTEMPTS:
+        st.session_state["auth_block_until"] = now + LOGIN_COOLDOWN_SECONDS
+        st.session_state["auth_failures"] = 0
+        msg = "Invalid credentials. Account temporarily locked."
+    else:
+        msg = f"Invalid username or password. ({MAX_LOGIN_ATTEMPTS - failures} tries left)"
+    log_login(username, False, "invalid credentials")
+    return False, msg
+
+
+if not st.session_state.get("auth_user"):
+    st.markdown(
+        "<style>#MainMenu{visibility:hidden;}</style>", unsafe_allow_html=True
+    )
+    gate_c1, gate_c2, gate_c3 = st.columns([1, 2, 1])
+    with gate_c2:
+        st.title("🛡️ Fraud Transaction Detection")
+        st.caption("Secured system — authentication required")
+        st.markdown("#### 🔐 Sign In")
+        with st.form("login_form"):
+            login_user = st.text_input("Username", key="login_username")
+            login_pass = st.text_input("Password", type="password", key="login_password")
+            login_sub = st.form_submit_button("🔐 Login", type="primary", width="stretch")
+            if login_sub:
+                ok, msg = _attempt_login(login_user, login_pass)
+                if ok:
+                    st.rerun()
+                else:
+                    st.error(msg)
+        st.caption(
+            "Demo accounts — `admin` / `admin123` (Administrator) and "
+            "`analyst` / `analyst123` (Analyst). Manage accounts with "
+            "`python manage_users.py`."
+        )
+    st.stop()
+
+
+# ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
 with st.sidebar:
+    _auth_user = st.session_state.get("auth_user", {})
+    st.markdown(
+        f"👤 **{_auth_user.get('name', '')}** · `{_auth_user.get('username', '')}` "
+        f"({_auth_user.get('role', '')})"
+    )
+    if st.button("🚪 Logout"):
+        st.session_state.pop("auth_user", None)
+        st.rerun()
+
     st.title("🛡️ Fraud Detector")
     st.markdown("---")
 
@@ -1226,6 +1298,17 @@ with tab_about:
     - **ML**: XGBoost, scikit-learn, imbalanced-learn
     - **Visualization**: Plotly
     - **Data**: Pandas, NumPy
+
+    ### Security & Access Control
+    - **Login is mandatory** — the entire system sits behind a password gate; no data,
+      charts, or audit log are rendered until you sign in.
+    - **Passwords are never stored in plain text** — each account uses a unique random
+      salt with PBKDF2-HMAC-SHA256 (200k iterations).
+    - **Rate limiting** — 5 failed attempts locks the session for 30 seconds.
+    - **Login audit log** — every successful and failed attempt is appended to
+      `login_log.csv` (git-ignored) for traceability.
+    - **Accounts** live in `users.json` (git-ignored) and are managed from the terminal
+      with `python manage_users.py` (add / list / reset-password / remove).
     """)
 
     st.markdown("---")

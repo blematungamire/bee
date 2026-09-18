@@ -1,0 +1,14 @@
+{
+  "admin": {
+    "name": "Administrator",
+    "role": "admin",
+    "salt": "61703691a071f896b0d69ac90d57c3f3",
+    "password_hash": "e699f1a7374ef3e892872c6aad7dd16e8f58fbe05dae6ead5d405d89e595d0d2"
+  },
+  "analyst": {
+    "name": "Fraud Analyst",
+    "role": "analyst",
+    "salt": "8c027c531722f2a73c588f74b9d50a74",
+    "password_hash": "5a9ca6fff8cf2fb2790fb47acca37fe23e492584c1646985a11c8b916dcb02c7"
+  }
+}
