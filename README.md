@@ -19,6 +19,7 @@ Financial fraud costs institutions billions annually. This application provides 
 - **Export Results** — Download flagged transactions as CSV
 - **Model Analytics** — View feature importance, per-model comparison, confusion matrix, ROC-AUC, and an auto-generated interpretation
 - **Automated Audit Trail** — every decision is logged with risk score, rules triggered, AI reasoning, data used, action taken, and space for an investigator's decision and final outcome
+- **🔎 Review Queue** — a dedicated tab that lists every flagged transaction (from the audit trail) with status (Pending/Decided), filters, per-case AI reasoning + rules, and one-click actions to record an investigator decision and final outcome — persisted back to the audit log
 - **Flagged Fraud Summary** — after scoring a batch, an executive summary of the detected fraud: risk-level counts, the rules that fired most, fraud concentration by category/channel, behaviour signals, and an auto-generated plain-language explanation of **why** each pattern was flagged (computed from the actual batch, not templates)
 
 ## Tech Stack

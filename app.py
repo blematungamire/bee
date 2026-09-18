@@ -18,6 +18,7 @@ from plotly.subplots import make_subplots
 import os
 import sys
 from collections import Counter
+import json
 
 sys.path.insert(0, os.path.dirname(__file__))
 from model import (
@@ -26,7 +27,7 @@ from model import (
 )
 from audit_trail import (
     record_decision, record_batch, update_investigator_decision,
-    load_audit_log_dataframe, AUDIT_COLUMNS
+    load_audit_log_dataframe, load_audit_log, AUDIT_COLUMNS
 )
 from currency import (
     SUPPORTED_CURRENCIES, RATE_PER_USD, BASE_CURRENCY,
@@ -430,8 +431,9 @@ artifacts = st.session_state.model_artifacts
 # ---------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------
-tab_upload, tab_manual, tab_analytics, tab_audit, tab_about = st.tabs(
-    ["📁 Upload CSV", "✏️ Manual Entry", "📈 Analytics Dashboard", "📋 Audit Trail", "ℹ️ About"]
+tab_upload, tab_manual, tab_analytics, tab_audit, tab_review, tab_about = st.tabs(
+    ["📁 Upload CSV", "✏️ Manual Entry", "📈 Analytics Dashboard",
+     "📋 Audit Trail", "🔎 Review Queue", "ℹ️ About"]
 )
 
 # ===================== TAB 1: FILE UPLOAD =====================
@@ -1418,7 +1420,192 @@ with tab_audit:
     st.caption("Audit log stored in `audit_log.csv` in the project directory.")
 
 
-# ===================== TAB 5: ABOUT =====================
+# ===================== TAB 5: REVIEW QUEUE =====================
+with tab_review:
+    st.subheader("🔎 Review Queue — Flagged Transactions")
+    st.caption(
+        "Every transaction the model flagged for review, with one-click actions for "
+        "the investigator to record a verdict."
+    )
+
+    explain(
+        "the review queue",
+        """
+        This is the **workbench for flagged cases** — a purpose-built view filtered from the
+        audit trail so you don't scan the whole history.
+
+        - **What lands here:** only records whose system `action_taken` is *"Flagged for
+          review"* (i.e. their `is_flagged == 1` at scoring time).
+        - **Your actions:** select a case, read the AI reasoning + business rules that fired,
+          then record an **Investigator Decision** and a **Final Outcome**. The verdict is
+          written back to the audit log (`audit_log.csv`), so the Queue and the Audit Trail
+          always agree.
+        - **Status filter:** *Pending Review* = still awaiting a human verdict, *Decided* =
+          already given one, *All* = everything.
+
+        Unlike the raw audit table, this view focuses you on **what still needs a human eye**
+        and shows the decision status at a glance.
+        """,
+    )
+
+    _all_audit = load_audit_log()
+    _flagged_rows = [r for r in _all_audit if r["action_taken"].startswith("Flagged")]
+
+    if not _flagged_rows:
+        st.info("No flagged transactions right now. Score a batch (Upload tab) to populate "
+                "the review queue.")
+    else:
+        import pandas as _pd
+        for r in _flagged_rows:
+            try:
+                _d = json.loads(r["data_used"])
+            except (ValueError, TypeError):
+                _d = {}
+            r["_amount"] = float(_d.get("amount", 0.0))
+            r["_currency"] = _d.get("currency", "USD")
+            r["_source"] = str(_d.get("source", ""))
+            r["_score"] = float(r["risk_score"])
+
+        _pending = sum(1 for r in _flagged_rows
+                       if r["investigator_decision"] == "Pending review")
+        _confirmed = sum(1 for r in _flagged_rows
+                         if r["investigator_decision"] == "Confirmed fraudulent")
+        _cleared = sum(1 for r in _flagged_rows
+                       if r["investigator_decision"] == "Confirmed legitimate")
+        _escalated = sum(1 for r in _flagged_rows
+                         if r["investigator_decision"] == "Escalated to senior review")
+
+        q1, q2, q3, q4 = st.columns(4)
+        q1.metric("🚨 Flagged", f"{len(_flagged_rows):,}")
+        q2.metric("⏳ Pending Review", f"{_pending:,}")
+        q3.metric("✅ Confirmed Fraud", f"{_confirmed:,}")
+        q4.metric("🔓 False Positives", f"{_cleared:,}")
+
+        if _escalated:
+            st.caption(f"{_escalated:,} case(s) escalated to senior review.")
+
+        st.markdown("---")
+
+        _status_opt = st.radio(
+            "Show cases:", ["All", "Pending Review", "Decided"], horizontal=True,
+            key="rq_status_filter"
+        )
+        if _status_opt == "Pending Review":
+            _display = [r for r in _flagged_rows if r["investigator_decision"] == "Pending review"]
+        elif _status_opt == "Decided":
+            _display = [r for r in _flagged_rows if r["investigator_decision"] != "Pending review"]
+        else:
+            _display = _flagged_rows
+
+        if not _display:
+            st.info(f"No flagged cases match '{_status_opt}'.")
+        else:
+            _queue_df = _pd.DataFrame(_display).sort_values("_score", ascending=False)
+
+            _table_cols = {
+                "transaction_id": "Transaction ID",
+                "risk_score": "Risk Score",
+                "_amount": "Amount",
+                "_currency": "Currency",
+                "_source": "Source",
+                "rules_triggered": "Rules Triggered",
+                "investigator_decision": "Investigator",
+                "final_outcome": "Outcome",
+            }
+            st.dataframe(
+                _queue_df[_table_cols.keys()].rename(columns=_table_cols).style.map(
+                    lambda v: "background-color: #ffcccc"
+                              if isinstance(v, (int, float)) and v >= 0.6 else "",
+                    subset=["Risk Score"]
+                ),
+                width="stretch",
+                height=320
+            )
+
+            explain(
+                "the review queue table",
+                """
+                One row per flagged transaction, sorted by risk (highest first). The
+                **Risk Score** column is shaded red for scores ≥ 0.6 so priority cases jump
+                out. **Investigator / Outcome** columns show the current human verdict —
+                *Pending review* means the case is still open in this queue.
+                """,
+            )
+
+            st.markdown("---")
+            st.markdown("### 🎯 Investigate & Decide")
+            _tx_ids = [r["transaction_id"] for r in _display]
+            _first_open = next(
+                (r["transaction_id"] for r in _display
+                 if r["investigator_decision"] == "Pending review"),
+                _display[0]["transaction_id"]
+            )
+            _default_idx = _tx_ids.index(_first_open) if _first_open in _tx_ids else 0
+            _selected_tx = st.selectbox(
+                "Select a flagged transaction to review", _tx_ids,
+                index=_default_idx, key="rq_select"
+            )
+
+            _rec = next((r for r in _flagged_rows if r["transaction_id"] == _selected_tx), None)
+            if _rec:
+                _d = json.loads(_rec["data_used"]) if _rec["data_used"] else {}
+                _money = f"{_rec['_amount']:,.2f} {_rec['_currency']}"
+                _c1, _c2 = st.columns(2)
+                with _c1:
+                    st.markdown(f"**Risk score:** `{_rec['risk_score']}`  ·  **Amount:** `{_money}`")
+                    st.markdown(f"**Source:** {_rec['_source']}  ·  **Channel:** {_d.get('channel','')}")
+                    st.markdown(f"**Tx type:** {_d.get('tx_type','')}")
+                with _c2:
+                    st.markdown("**AI reasoning:**")
+                    st.markdown(f"{_rec['ai_reasoning']}")
+                    st.markdown("**Rules triggered:**")
+                    st.markdown(f"{_rec['rules_triggered']}")
+
+                with st.form(f"review_form_{_selected_tx}"):
+                    rq_c1, rq_c2 = st.columns(2)
+                    with rq_c1:
+                        _decision_opts = [
+                            "Confirmed fraudulent", "Confirmed legitimate",
+                            "Escalated to senior review", "Requires more data",
+                            "Pending review",
+                        ]
+                        _decision_idx = (
+                            _decision_opts.index(_rec["investigator_decision"])
+                            if _rec["investigator_decision"] in _decision_opts else 0
+                        )
+                        _decision = st.selectbox(
+                            "Investigator Decision", _decision_opts,
+                            index=_decision_idx, key=f"rq_decision_{_selected_tx}"
+                        )
+                    with rq_c2:
+                        _outcome_opts = [
+                            "Awaiting investigator", "Fraud — account suspended",
+                            "Fraud — refund issued", "False positive — cleared",
+                            "Monitoring account",
+                        ]
+                        _outcome_idx = (
+                            _outcome_opts.index(_rec["final_outcome"])
+                            if _rec["final_outcome"] in _outcome_opts else 0
+                        )
+                        _outcome = st.selectbox(
+                            "Final Outcome", _outcome_opts,
+                            index=_outcome_idx, key=f"rq_outcome_{_selected_tx}"
+                        )
+                    _submit_review = st.form_submit_button(
+                        "✔️ Record Decision", type="primary", width="stretch"
+                    )
+                    if _submit_review:
+                        if update_investigator_decision(_selected_tx, _decision, _outcome):
+                            st.success(f"Decision recorded for {_selected_tx}.")
+                            st.rerun()
+                        else:
+                            st.error(f"Could not update {_selected_tx} in the audit log.")
+
+    st.markdown("---")
+    st.caption("Review decisions are persisted to `audit_log.csv` alongside the audit trail.")
+
+
+# ===================== TAB 6: ABOUT =====================
 with tab_about:
     st.subheader("About This Application")
 

@@ -322,12 +322,78 @@ def test_forgot_password_flow():
         auth_mod.remove_user(test_user)
 
 
+def test_review_queue_flow():
+    """Review Queue lists flagged cases and records an investigator decision."""
+    reset_audit_log()
+
+    at = AppTest.from_file(APP_PATH, default_timeout=120)
+    at.run()
+    do_login(at)
+
+    with open(SAMPLE_CSV, "rb") as f:
+        content = f.read()
+    at.file_uploader[0].set_value(
+        [(os.path.basename(SAMPLE_CSV), content, "text/csv")]
+    )
+    at.run()
+    for btn in at.button:
+        if "Run Fraud Detection" in str(btn.label):
+            btn.click()
+            break
+    at.run()
+    assert not at.exception
+
+    log = load_audit_log()
+    flagged = [r for r in log if r["action_taken"].startswith("Flagged")]
+    assert len(flagged) > 0, "expected flagged records for the review queue"
+    chosen = max(flagged, key=lambda r: float(r["risk_score"]))
+    tx = chosen["transaction_id"]
+
+    # Show only pending cases
+    for rd in at.radio:
+        if rd.key == "rq_status_filter":
+            rd.set_value("Pending Review")
+            break
+    at.run()
+
+    # Open the highest-risk case
+    for sb in at.selectbox:
+        if sb.key == "rq_select":
+            sb.select(tx)
+            break
+    at.run()
+
+    # Record a human verdict
+    for sb in at.selectbox:
+        if sb.key == f"rq_decision_{tx}":
+            sb.select("Confirmed fraudulent")
+            break
+    for sb in at.selectbox:
+        if sb.key == f"rq_outcome_{tx}":
+            sb.select("Fraud — account suspended")
+            break
+    at.run()
+    for btn in at.button:
+        if "Record Decision" in str(btn.label):
+            btn.click()
+            break
+    at.run()
+    assert not at.exception, f"App raised in review queue: {at.exception}"
+
+    rows = [r for r in load_audit_log() if r["transaction_id"] == tx]
+    assert rows, "case not found in audit log"
+    assert rows[-1]["investigator_decision"] == "Confirmed fraudulent"
+    assert rows[-1]["final_outcome"] == "Fraud — account suspended"
+    print(f"Review Queue flow OK (decided {tx})")
+
+
 if __name__ == "__main__":
     test_security_login_gate()
     test_login_and_logout_flow()
     test_forgot_password_flow()
     test_app_renders()
     test_audit_trail_writes_on_scoring()
+    test_review_queue_flow()
     test_upload_and_score_flow()
     test_multi_file_upload_flow()
     test_manual_entry_flow()
